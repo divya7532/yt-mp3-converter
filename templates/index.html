@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>YouTube → MP3</title>
+
+<style>
+body {
+    margin: 0;
+    height: 100vh;
+    background: radial-gradient(circle at top, #1a0033, #000010);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: white;
+    font-family: Arial;
+}
+
+.card {
+    width: 420px;
+    padding: 35px;
+    border-radius: 20px;
+    background: rgba(255,255,255,0.08);
+    backdrop-filter: blur(18px);
+    box-shadow: 0 30px 60px rgba(0,0,0,0.7);
+    text-align: center;
+}
+
+input, button {
+    width: 100%;
+    padding: 14px;
+    margin-top: 15px;
+    border-radius: 12px;
+    border: none;
+    font-size: 15px;
+}
+
+button {
+    background: linear-gradient(90deg, #ff00cc, #3333ff);
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.progress {
+    margin-top: 20px;
+    height: 10px;
+    background: rgba(255,255,255,0.2);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #ff00cc, #3333ff);
+}
+
+.status {
+    margin-top: 15px;
+    font-size: 14px;
+}
+
+/* ✅ SUCCESS SCREEN */
+.success {
+    display: none;
+    margin-top: 25px;
+}
+
+.check {
+    font-size: 48px;
+    color: #00ff99;
+    animation: pop 0.5s ease;
+}
+
+@keyframes pop {
+    0% { transform: scale(0.6); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+}
+</style>
+</head>
+
+<body>
+
+<div class="card">
+    <h2>🎧 YouTube → MP3</h2>
+
+    <input id="url" placeholder="Paste YouTube link">
+
+    <button id="btn" onclick="start()">Convert</button>
+
+    <div class="progress">
+        <div class="bar" id="bar"></div>
+    </div>
+
+    <div class="status" id="status">Idle</div>
+
+    <!-- SUCCESS UI -->
+    <div class="success" id="success">
+        <div class="check">✔</div>
+        <div>MP3 Ready</div>
+    </div>
+</div>
+
+<script>
+function start() {
+    document.getElementById("success").style.display = "none";
+    document.getElementById("btn").innerText = "Converting…";
+
+    fetch("/convert", {
+        method: "POST",
+        headers: {"Content-Type": "application/x-www-form-urlencoded"},
+        body: "url=" + encodeURIComponent(document.getElementById("url").value)
+    });
+
+    checkProgress();
+}
+
+function checkProgress() {
+    fetch("/progress")
+        .then(res => res.json())
+        .then(data => {
+            document.getElementById("bar").style.width = data.percent + "%";
+
+            if (data.status !== "finished") {
+                document.getElementById("status").innerText =
+                    "Downloading… " + data.percent + "%";
+                setTimeout(checkProgress, 500);
+            } else {
+                document.getElementById("status").innerText = "Preparing file…";
+                tryDownload();
+            }
+        });
+}
+
+function tryDownload() {
+    fetch("/download")
+        .then(res => {
+            if (res.status === 204) {
+                setTimeout(tryDownload, 500);
+            } else {
+                // show success screen
+                document.getElementById("success").style.display = "block";
+                document.getElementById("status").innerText = "Download started";
+                document.getElementById("btn").innerText = "Download Again";
+
+                window.location.href = "/download";
+            }
+        });
+}
+</script>
+
+</body>
+</html>

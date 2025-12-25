@@ -1,0 +1,9 @@
+venv/
+downloads/
+__pycache__/
+*.mp3
+
+git add .gitignore
+git commit -m "Add gitignore"
+git push
+

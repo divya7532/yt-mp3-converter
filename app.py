@@ -45,17 +45,19 @@ def download_audio(task_id, url, quality):
     
     ydl_opts = {
         "format": "bestaudio/best",
-        # Use task_id to ensure we can find the file, restrictfilenames to prevent illegal char errors
         "outtmpl": os.path.join(DOWNLOAD_FOLDER, f"{task_id}_%(title)s.%(ext)s"),
         "restrictfilenames": True, 
         "progress_hooks": [lambda d: hook(d, task_id)],
         "quiet": True,
         "noplaylist": True,
         
-        # Best combination: Android client for formats + Node.js (via system) for security
+        # --- CRITICAL FIX: USE COOKIES ---
+        "cookiefile": "cookies.txt",  # This loads your file to bypass the bot check
+        
+        # Switch to 'web' client when using cookies (often more stable with auth)
         "extractor_args": {
             "youtube": {
-                "player_client": ["android", "web"]
+                "player_client": ["web", "android"]
             }
         },
         
@@ -70,13 +72,15 @@ def download_audio(task_id, url, quality):
     }
 
     try:
+        # Check if cookie file exists before running
+        if not os.path.exists("cookies.txt"):
+            print("WARNING: cookies.txt not found! YouTube might block this.")
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.extract_info(url, download=True)
             
-            # SEARCH FOR THE FILE
-            # We search by task_id because restrictfilenames might have changed the title
             found_file = None
-            time.sleep(0.5) # Allow FS sync
+            time.sleep(0.5)
             for f in os.listdir(DOWNLOAD_FOLDER):
                 if f.startswith(task_id) and f.endswith(".mp3"):
                     found_file = f
@@ -86,7 +90,7 @@ def download_audio(task_id, url, quality):
                 task["filename"] = found_file
                 task["status"] = "done"
             else:
-                raise Exception("File not found on disk after download.")
+                raise Exception("File not found on disk.")
 
     except Exception as e:
         clean_error = clean_str(str(e))
@@ -151,4 +155,5 @@ if __name__ == "__main__":
     # Render assigns a port automatically in the PORT environment variable
     port = int(os.environ.get("PORT", 5000))
     # Host must be 0.0.0.0 to be accessible externally
+
     app.run(host='0.0.0.0', port=port, debug=False)

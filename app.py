@@ -43,7 +43,12 @@ def hook(d, task_id):
 def download_audio(task_id, url, quality):
     task = tasks[task_id]
     
+    # Check if cookies exist
+    cookie_file = "cookies.txt"
+    use_cookies = os.path.exists(cookie_file)
+    
     ydl_opts = {
+        # 'best' format is safer than 'bestaudio' for preventing 403s on some clients
         "format": "bestaudio/best",
         "outtmpl": os.path.join(DOWNLOAD_FOLDER, f"{task_id}_%(title)s.%(ext)s"),
         "restrictfilenames": True, 
@@ -51,18 +56,10 @@ def download_audio(task_id, url, quality):
         "quiet": True,
         "noplaylist": True,
         
-        # --- CRITICAL FIX: USE COOKIES ---
-        "cookiefile": "cookies.txt",  # This loads your file to bypass the bot check
-        
-        # Switch to 'web' client when using cookies (often more stable with auth)
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["web", "android"]
-            }
-        },
-        
+        # --- ANTI-BLOCK CONFIGURATION ---
         "concurrent_fragment_downloads": 3,
         "retries": 10,
+        "nocheckcertificate": True,
         
         "postprocessors": [{
             "key": "FFmpegExtractAudio",
@@ -71,16 +68,26 @@ def download_audio(task_id, url, quality):
         }],
     }
 
-    try:
-        # Check if cookie file exists before running
-        if not os.path.exists("cookies.txt"):
-            print("WARNING: cookies.txt not found! YouTube might block this.")
+    # 1. IF COOKIES EXIST: Use them with the standard Web client (Most reliable)
+    if use_cookies:
+        print("Using Cookies for Authentication...")
+        ydl_opts["cookiefile"] = cookie_file
+        ydl_opts["extractor_args"] = {"youtube": {"player_client": ["web"]}}
+    
+    # 2. IF NO COOKIES: Use iOS client (Often bypasses 403 better than Android)
+    else:
+        print("No Cookies found - Attempting fallback client...")
+        ydl_opts["extractor_args"] = {"youtube": {"player_client": ["ios", "android"]}}
+        # iOS sometimes fails if we demand audio-only, so we allow video downloads and convert them
+        ydl_opts["format"] = "best" 
 
+    try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.extract_info(url, download=True)
             
+            # SEARCH FOR THE FILE
             found_file = None
-            time.sleep(0.5)
+            time.sleep(0.5) # Allow FS sync
             for f in os.listdir(DOWNLOAD_FOLDER):
                 if f.startswith(task_id) and f.endswith(".mp3"):
                     found_file = f
@@ -90,7 +97,7 @@ def download_audio(task_id, url, quality):
                 task["filename"] = found_file
                 task["status"] = "done"
             else:
-                raise Exception("File not found on disk.")
+                raise Exception("File not found on disk after download.")
 
     except Exception as e:
         clean_error = clean_str(str(e))
@@ -109,7 +116,12 @@ def info():
     url = request.json.get("url")
     if not url: return jsonify({"error": "no url"}), 400
     try:
-        with yt_dlp.YoutubeDL({"quiet": True, "skip_download": True}) as ydl:
+        # Use cookies for info fetching too if available
+        opts = {"quiet": True, "skip_download": True}
+        if os.path.exists("cookies.txt"):
+            opts["cookiefile"] = "cookies.txt"
+            
+        with yt_dlp.YoutubeDL(opts) as ydl:
             data = ydl.extract_info(url, download=False)
         return jsonify({"thumbnail": data.get("thumbnail"), "title": data.get("title")})
     except Exception as e:
@@ -135,13 +147,11 @@ def progress(task_id):
 
 @app.route("/download/<filename>")
 def download(filename):
-    # Security check: Ensure filename is just a name, not a path
     safe_name = os.path.basename(filename)
     path = os.path.join(DOWNLOAD_FOLDER, safe_name)
     
     if not os.path.exists(path): return "File not found", 404
     
-    # Remove the UUID prefix so the user sees a clean name
     display_name = safe_name.split('_', 1)[-1] if '_' in safe_name else safe_name
 
     return send_file(
@@ -152,8 +162,6 @@ def download(filename):
     )
 
 if __name__ == "__main__":
-    # Render assigns a port automatically in the PORT environment variable
+    # Render support
     port = int(os.environ.get("PORT", 5000))
-    # Host must be 0.0.0.0 to be accessible externally
-
     app.run(host='0.0.0.0', port=port, debug=False)
